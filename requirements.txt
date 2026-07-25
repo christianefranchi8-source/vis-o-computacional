@@ -4,3 +4,4 @@ opencv-python-headless
 psycopg2-binary
 Pillow
 numpy
+torch --index-url https://download.pytorch.org/whl/cpu

@@ -5,6 +5,7 @@ import numpy as np
 import psycopg2
 import streamlit as st
 from PIL import Image
+import torch
 from ultralytics import YOLO
 
 # -----------------------------------------------------------------------------
@@ -21,19 +22,25 @@ st.set_page_config(
 # -----------------------------------------------------------------------------
 @st.cache_resource
 def load_segmentation_model():
-    # Modelo leve para processamento em CPU (Render-friendly)
+    # Carrega modelo ultra-leve otimizado para CPU
     return YOLO("yolov8n-seg.pt")
 
 model = load_segmentation_model()
 
 def get_db_connection():
-    # Tenta ler do environment (Render/Local) ou Streamlit Secrets
+    # 1. Tenta ler do ambiente (Render/OS)
     db_url = os.getenv("DATABASE_URL")
-    if not db_url and "DATABASE_URL" in st.secrets:
-        db_url = st.secrets["DATABASE_URL"]
+    
+    # 2. Se não encontrou, tenta ler de st.secrets sem crashar se o arquivo não existir
+    if not db_url:
+        try:
+            if "DATABASE_URL" in st.secrets:
+                db_url = st.secrets["DATABASE_URL"]
+        except Exception:
+            pass  # Segredos locais não configurados
         
     if not db_url:
-        st.error("DATABASE_URL não configurada. Defina a variável de ambiente ou streamlit secrets.")
+        st.error("⚠️ DATABASE_URL não configurada. Defina a variável de ambiente no Render ou no secrets.toml local.")
         return None
     
     try:
@@ -78,7 +85,6 @@ conf_threshold = sidebar.slider("Confiança do Modelo", 0.1, 1.0, 0.35, 0.05)
 uploaded_file = st.file_uploader("Selecione uma imagem...", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    # Carregar imagem original
     image_bytes = uploaded_file.read()
     pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     img_np = np.array(pil_image)
@@ -89,15 +95,19 @@ if uploaded_file is not None:
         st.subheader("Imagem Original")
         st.image(pil_image, use_container_width=True)
     
-    # Botão de Processamento
     if st.button("🚀 Processar Imagem", type="primary"):
         with st.spinner("Processando segmentação e extraindo características..."):
             
-            # Inferência do Modelo
-            results = model.predict(source=img_np, conf=conf_threshold, save=False)
-            result = results[0]
+            # Inferência Otimizada (Evita estouro de memória OOM)
+            with torch.no_grad():
+                results = model.predict(
+                    source=img_np, 
+                    conf=conf_threshold, 
+                    imgsz=320,  # Resolução interna reduzida para economizar RAM
+                    save=False
+                )
             
-            # Renderizar a imagem segmentada
+            result = results[0]
             res_plotted = result.plot()
             segmented_pil = Image.fromarray(res_plotted)
             
@@ -105,13 +115,13 @@ if uploaded_file is not None:
                 st.subheader("Resultado da Segmentação")
                 st.image(segmented_pil, use_container_width=True)
             
-            # Extração de Métricas e Características
+            # Extração de Métricas
             height, width, channels = img_np.shape
             dim_str = f"{width}x{height} ({channels} ch)"
             
             detected_classes = []
             object_count = 0
-            total_mask_area = 0
+            total_mask_area = 0.0
             
             if result.boxes is not None and len(result.boxes) > 0:
                 object_count = len(result.boxes)
@@ -119,7 +129,6 @@ if uploaded_file is not None:
                 class_names = [model.names[cid] for cid in class_ids]
                 detected_classes = list(set(class_names))
                 
-                # Cálculo da área segmentada (se houver máscaras)
                 if result.masks is not None:
                     masks = result.masks.data.cpu().numpy()
                     combined_mask = np.any(masks, axis=0)
@@ -127,7 +136,6 @@ if uploaded_file is not None:
             
             main_objects_str = ", ".join(detected_classes) if detected_classes else "Nenhum objeto relevante"
             
-            # Exibição dos Resultados
             st.markdown("---")
             st.subheader("📊 Diagnóstico e Características Extraídas")
             
@@ -139,7 +147,7 @@ if uploaded_file is not None:
             
             st.info(f"**Conteúdo Detectado na Imagem:** {main_objects_str}")
             
-            # Persistência no PostgreSQL (Neon)
+            # Gravação no Banco de Dados
             saved = save_to_neon(
                 filename=uploaded_file.name,
                 dimensions=dim_str,
