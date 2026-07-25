@@ -1,0 +1,47 @@
+# ==========================================
+# SEGREDO E VARIÁVEIS DE AMBIENTE (IMPORTANTE!)
+# ==========================================
+# Impede o envio de credenciais da Neon.tech / Banco de dados
+.streamlit/secrets.toml
+.env
+*.env
+
+# ==========================================
+# AMBIENTE PYTHON & CACHE
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+ENV/
+env/
+
+# ==========================================
+# ULTRALYTICS / YOLO / PESOS DE IA
+# ==========================================
+# Impede subir modelos baixados (.pt) e logs de treinamento
+*.pt
+*.onnx
+*.engine
+runs/
+.ultralytics/
+
+# ==========================================
+# SISTEMA OPERACIONAL & EDITORES (VS Code, etc)
+# ==========================================
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ==========================================
+# ARQUIVOS DE TESTE / UPLOADS LOCAIS
+# ==========================================
+*.jpg
+*.jpeg
+*.png
+*.bmp
+!sample.jpg  # Descomente e troque o nome se quiser incluir apenas UMA imagem de exemplo no repositório
